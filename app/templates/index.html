@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BeatMesh</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Socket.IO -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #000000;
+            color: #ffffff;
+        }
+        .audio-progress {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 5px;
+            background: #4a5568;
+            outline: none;
+            border-radius: 3px;
+        }
+        .audio-progress::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 15px;
+            height: 15px;
+            background: #ffffff;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <!-- Header -->
+        <header class="text-center mb-12">
+            <h1 class="text-4xl font-bold mb-2">BeatMesh</h1>
+            <p class="text-gray-400">Listen together in perfect sync</p>
+            <div class="mt-2">
+                <a href="https://webbio.dev" target="_blank" rel="noopener noreferrer" class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-800 text-gray-300 hover:bg-gray-700 transition-colors">
+                    by iWebbIO
+                </a>
+            </div>
+        </header>
+
+        <!-- Room Status -->
+        <div class="bg-gray-900 p-4 rounded-lg mb-6">
+            <div class="flex justify-between items-center">
+                <div>
+                    <span class="text-sm text-gray-400">Room:</span>
+                    <span id="room-id" class="text-white font-medium">default</span>
+                </div>
+                <div>
+                    <span class="text-sm text-gray-400">Users online:</span>
+                    <span id="users-count" class="text-white font-medium">0</span>
+                </div>
+                <div>
+                    <span class="text-sm text-gray-400">Status:</span>
+                    <span id="connection-status" class="text-green-400 font-medium">Connecting...</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <!-- Track List -->
+            <div class="bg-gray-900 p-6 rounded-lg">
+                <h2 class="text-xl font-semibold mb-4">Available Tracks</h2>
+                <div class="space-y-2">
+                    {% for file in music_files %}
+                    <button 
+                        class="track-item w-full text-left px-4 py-3 rounded bg-gray-800 hover:bg-gray-700 transition-colors"
+                        data-filename="{{ file }}">
+                        {{ file }}
+                    </button>
+                    {% endfor %}
+                </div>
+
+                <!-- Upload Form -->
+                <div class="mt-6 pt-6 border-t border-gray-700">
+                    <h3 class="text-lg font-medium mb-3">Add New Track</h3>
+                    <form id="upload-form" class="space-y-4">
+                        <input type="file" 
+                               id="file-input" 
+                               accept=".mp3,.wav,.ogg" 
+                               class="block w-full text-sm text-gray-400
+                                      file:mr-4 file:py-2 file:px-4
+                                      file:rounded-full file:border-0
+                                      file:text-sm file:font-semibold
+                                      file:bg-gray-800 file:text-white
+                                      hover:file:bg-gray-700">
+                        <button type="submit" 
+                                class="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 
+                                       rounded-lg transition-colors">
+                            Upload
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Player Controls -->
+            <div class="md:col-span-2">
+                <div class="bg-gray-900 p-6 rounded-lg">
+                    <h2 id="current-track" class="text-xl font-semibold mb-4">Select a track to play</h2>
+                    
+                    <!-- Hidden audio element -->
+                    <audio id="audio-player" preload="auto"></audio>
+                    
+                    <!-- Custom progress bar -->
+                    <div class="mb-4">
+                        <input type="range" 
+                               id="progress-slider" 
+                               class="audio-progress"
+                               value="0" min="0" max="100">
+                        <div class="flex justify-between text-sm text-gray-400 mt-1">
+                            <span id="current-time">0:00</span>
+                            <span id="duration">0:00</span>
+                        </div>
+                    </div>
+
+                    <!-- Volume Control -->
+                    <div class="mb-4">
+                        <label class="block text-sm text-gray-400 mb-2">Volume</label>
+                        <div class="flex items-center space-x-3">
+                            <span class="text-sm text-gray-400">🔊</span>
+                            <input type="range" 
+                                   id="volume-slider" 
+                                   class="audio-progress flex-1"
+                                   value="100" min="0" max="100">
+                            <span id="volume-display" class="text-sm text-gray-400 w-10">100%</span>
+                        </div>
+                    </div>
+
+                    <!-- Playback controls -->
+                    <div class="flex justify-center space-x-4">
+                        <button id="play-btn" 
+                                class="px-6 py-3 bg-white text-black rounded-full 
+                                       hover:bg-gray-200 transition-colors">
+                            Play
+                        </button>
+                        <button id="pause-btn" 
+                                class="px-6 py-3 bg-gray-800 text-white rounded-full 
+                                       hover:bg-gray-700 transition-colors">
+                            Pause
+                        </button>
+                        <button id="stop-btn" 
+                                class="px-6 py-3 bg-gray-800 text-white rounded-full 
+                                       hover:bg-gray-700 transition-colors">
+                            Stop
+                        </button>
+                    </div>
+
+                    <!-- Status message -->
+                    <div id="status-message" 
+                         class="mt-4 text-center text-sm text-gray-400">
+                        Ready to play
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const socket = io();
+            const audioPlayer = document.getElementById('audio-player');
+            const playBtn = document.getElementById('play-btn');
+            const pauseBtn = document.getElementById('pause-btn');
+            const stopBtn = document.getElementById('stop-btn');
+            const progressSlider = document.getElementById('progress-slider');
+            const volumeSlider = document.getElementById('volume-slider');
+            const volumeDisplay = document.getElementById('volume-display');
+            const currentTimeDisplay = document.getElementById('current-time');
+            const durationDisplay = document.getElementById('duration');
+            const currentTrackDisplay = document.getElementById('current-track');
+            const statusMessage = document.getElementById('status-message');
+            const uploadForm = document.getElementById('upload-form');
+            const fileInput = document.getElementById('file-input');
+            const roomIdDisplay = document.getElementById('room-id');
+            const usersCountDisplay = document.getElementById('users-count');
+            const connectionStatusDisplay = document.getElementById('connection-status');
+
+            let isPlaying = false;
+            let currentUserId = null;
+            let currentRoomId = 'default';
+            let serverTimeOffset = 0;
+
+            // Format time in minutes:seconds
+            function formatTime(seconds) {
+                const minutes = Math.floor(seconds / 60);
+                seconds = Math.floor(seconds % 60);
+                return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+            }
+
+            // Update time displays
+            function updateTimeDisplay() {
+                currentTimeDisplay.textContent = formatTime(audioPlayer.currentTime);
+                durationDisplay.textContent = formatTime(audioPlayer.duration || 0);
+            }
+
+            // Handle track selection
+            document.querySelectorAll('.track-item').forEach(item => {
+                item.addEventListener('click', () => {
+                    const filename = item.getAttribute('data-filename');
+                    socket.emit('load_track', { filename });
+                    currentTrackDisplay.textContent = filename;
+                });
+            });
+
+            // Play button handler
+            playBtn.addEventListener('click', () => {
+                if (audioPlayer.src) {
+                    audioPlayer.play();
+                    socket.emit('play', { 
+                        currentTime: audioPlayer.currentTime,
+                        filename: audioPlayer.src.split('/').pop()
+                    });
+                    isPlaying = true;
+                }
+            });
+
+            // Pause button handler
+            pauseBtn.addEventListener('click', () => {
+                audioPlayer.pause();
+                socket.emit('pause', { currentTime: audioPlayer.currentTime });
+                isPlaying = false;
+            });
+
+            // Stop button handler
+            stopBtn.addEventListener('click', () => {
+                audioPlayer.pause();
+                audioPlayer.currentTime = 0;
+                socket.emit('pause', { currentTime: 0 });
+                isPlaying = false;
+            });
+
+            // Progress slider handler
+            progressSlider.addEventListener('input', () => {
+                const time = (progressSlider.value / 100) * audioPlayer.duration;
+                audioPlayer.currentTime = time;
+                socket.emit('seek', { currentTime: time });
+                updateTimeDisplay();
+            });
+
+            // Volume slider handler
+            volumeSlider.addEventListener('input', () => {
+                const volume = volumeSlider.value / 100;
+                audioPlayer.volume = volume;
+                volumeDisplay.textContent = `${volumeSlider.value}%`;
+                socket.emit('volume_change', { volume: volume });
+            });
+
+            // Audio player event listeners
+            audioPlayer.addEventListener('timeupdate', () => {
+                if (audioPlayer.duration) {
+                    progressSlider.value = (audioPlayer.currentTime / audioPlayer.duration) * 100;
+                    updateTimeDisplay();
+                }
+            });
+
+            audioPlayer.addEventListener('loadedmetadata', () => {
+                updateTimeDisplay();
+            });
+
+            // Socket.IO event handlers
+            socket.on('connect', () => {
+                connectionStatusDisplay.textContent = 'Connected';
+                connectionStatusDisplay.className = 'text-green-400 font-medium';
+                statusMessage.textContent = 'Connected to server';
+            });
+
+            socket.on('disconnect', () => {
+                connectionStatusDisplay.textContent = 'Disconnected';
+                connectionStatusDisplay.className = 'text-red-400 font-medium';
+                statusMessage.textContent = 'Disconnected from server';
+            });
+
+            socket.on('sync', (data) => {
+                if (data.user_id) {
+                    currentUserId = data.user_id;
+                }
+                if (data.room_id) {
+                    currentRoomId = data.room_id;
+                    roomIdDisplay.textContent = data.room_id;
+                }
+                if (data.server_time) {
+                    serverTimeOffset = Date.now() - (data.server_time * 1000);
+                }
+                if (data.room_state) {
+                    const roomState = data.room_state;
+                    usersCountDisplay.textContent = Object.keys(roomState.users || {}).length;
+                    
+                    // Sync volume
+                    if (roomState.volume !== undefined) {
+                        audioPlayer.volume = roomState.volume;
+                        volumeSlider.value = roomState.volume * 100;
+                        volumeDisplay.textContent = `${Math.round(roomState.volume * 100)}%`;
+                    }
+                    
+                    // Sync current track
+                    if (roomState.current_track && roomState.current_track !== currentTrackDisplay.textContent) {
+                        const fileUrl = `/static/music/${roomState.current_track}`;
+                        audioPlayer.src = fileUrl;
+                        currentTrackDisplay.textContent = roomState.current_track;
+                    }
+                }
+                statusMessage.textContent = data.status || 'Synced';
+            });
+
+            socket.on('user_joined', (data) => {
+                usersCountDisplay.textContent = data.users_count;
+                statusMessage.textContent = 'User joined the room';
+            });
+
+            socket.on('user_left', (data) => {
+                usersCountDisplay.textContent = data.users_count;
+                statusMessage.textContent = 'User left the room';
+            });
+
+            socket.on('load_track', (data) => {
+                const fileUrl = `/static/music/${data.filename}`;
+                audioPlayer.src = fileUrl;
+                currentTrackDisplay.textContent = data.filename;
+                if (data.startTime) {
+                    audioPlayer.currentTime = data.startTime;
+                }
+                statusMessage.textContent = `Loaded: ${data.filename}`;
+            });
+
+            socket.on('play', (data) => {
+                if (data.filename && !audioPlayer.src.includes(data.filename)) {
+                    audioPlayer.src = `/static/music/${data.filename}`;
+                    currentTrackDisplay.textContent = data.filename;
+                }
+                
+                // Sync with server time
+                if (data.server_time && data.currentTime !== undefined) {
+                    const timeDiff = (Date.now() - (data.server_time * 1000) + serverTimeOffset) / 1000;
+                    audioPlayer.currentTime = data.currentTime + timeDiff;
+                }
+                
+                audioPlayer.play();
+                isPlaying = true;
+                statusMessage.textContent = 'Playing';
+            });
+
+            socket.on('pause', (data) => {
+                audioPlayer.pause();
+                if (data.currentTime !== undefined) {
+                    audioPlayer.currentTime = data.currentTime;
+                }
+                isPlaying = false;
+                statusMessage.textContent = 'Paused';
+            });
+
+            socket.on('seek', (data) => {
+                if (data.currentTime !== undefined) {
+                    audioPlayer.currentTime = data.currentTime;
+                }
+                statusMessage.textContent = 'Seeked';
+            });
+
+            socket.on('volume_change', (data) => {
+                if (data.volume !== undefined) {
+                    audioPlayer.volume = data.volume;
+                    volumeSlider.value = data.volume * 100;
+                    volumeDisplay.textContent = `${Math.round(data.volume * 100)}%`;
+                }
+                statusMessage.textContent = 'Volume synchronized';
+            });
+
+            socket.on('error', (data) => {
+                statusMessage.textContent = `Error: ${data.message}`;
+                connectionStatusDisplay.textContent = 'Error';
+                connectionStatusDisplay.className = 'text-red-400 font-medium';
+            });
+
+            // File upload handler
+            uploadForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const file = fileInput.files[0];
+                if (!file) {
+                    statusMessage.textContent = 'Please select a file';
+                    return;
+                }
+
+                const formData = new FormData();
+                formData.append('file', file);
+
+                try {
+                    const response = await fetch('/upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const data = await response.json();
+                    
+                    if (response.ok) {
+                        statusMessage.textContent = data.message;
+                        // Reload the page to update the track list
+                        window.location.reload();
+                    } else {
+                        statusMessage.textContent = data.error;
+                    }
+                } catch (error) {
+                    statusMessage.textContent = 'Upload failed';
+                }
+            });
+        });
+    </script>
+</body>
+</html>
